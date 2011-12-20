@@ -38,6 +38,9 @@ struct state {
 };
 
 
+sp_track* t = NULL;
+
+
 // Catches SIGINT and exits gracefully
 static void sigint_handler(evutil_socket_t socket,
                            short what,
@@ -73,6 +76,21 @@ static void logged_in(sp_session *session, sp_error error) {
   // sp_playlistcontainer *pc = sp_session_playlistcontainer(session);
   // sp_playlistcontainer_add_callbacks(pc, &playlistcontainer_callbacks,
   //                                    session);
+
+
+  // try to load a track (spotify:track:65EaJb3guHXc5OELuFQjeH)
+  sp_link* l = sp_link_create_from_string("spotify:track:65EaJb3guHXc5OELuFQjeH"); 
+  t = sp_link_as_track(l);
+  sp_track_add_ref(t);
+
+  if (sp_track_is_loaded(t))
+  {
+  	 printf("track is loaded !\n");
+  }
+  else
+  {
+  	 printf("track is not loaded :(\n");
+  }
 }
 
 
@@ -99,6 +117,19 @@ static void notify_main_thread(sp_session *session) {
 }
 
 
+static void metadata_updated(sp_session *session) {
+	fprintf(stderr, "metadata updated.\n");
+	if ((NULL != t) && sp_track_is_loaded (t))
+	{
+		fprintf(stderr, "track loaded. name: %s\n", sp_track_name(t));
+		sp_track_release(t);
+		t = NULL;
+	}
+	else {
+		fprintf(stderr, "track not loaded yet\n");
+	}
+}
+
 
 int main(int argc, char **argv) {
 
@@ -123,7 +154,8 @@ int main(int argc, char **argv) {
   sp_session_callbacks session_callbacks = {
     .logged_in = &logged_in,
     .logged_out = &logged_out,
-    .notify_main_thread = &notify_main_thread
+    .notify_main_thread = &notify_main_thread,
+    .metadata_updated = &metadata_updated
   };
 
   sp_session_config session_config = {
