@@ -8,6 +8,7 @@ LDFLAGS=-framework libspotify -levent -levent_pthreads
 TARGET=bin/spotify_cmd
 
 all: ${OBJS}
+	mkdir -p `dirname ${TARGET}`
 	${CC} ${OBJS} ${LDFLAGS} -o ${TARGET}
 
 clean:
