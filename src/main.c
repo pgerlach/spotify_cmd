@@ -122,13 +122,47 @@ static void metadata_updated(sp_session *session) {
 	if ((NULL != t) && sp_track_is_loaded (t))
 	{
 		fprintf(stderr, "track loaded. name: %s\n", sp_track_name(t));
-		sp_track_release(t);
-		t = NULL;
+
+		sp_error e = sp_session_player_load(session, t);
+		if (e != SP_ERROR_OK) {
+			fprintf(stderr, "error !\n");
+			sp_track_release(t);
+			t = NULL;
+		}
+		else {
+			sp_session_player_play(session, 1);
+		}
 	}
 	else {
 		fprintf(stderr, "track not loaded yet\n");
 	}
 }
+
+
+void start_playback(sp_session *session) {
+	fprintf(stderr, "start playback callback\n");
+
+}
+
+
+void stop_playback(sp_session *session) {
+	fprintf(stderr, "stop playback callback\n");
+	
+}
+
+
+void get_audio_buffer_stats(sp_session *session, sp_audio_buffer_stats *stats)
+{
+	
+}
+
+
+static int music_delivery(sp_session *sess, const sp_audioformat *format,
+                          const void *frames, int num_frames)
+{
+	fprintf(stderr, "music delivery !\n");
+}
+
 
 
 int main(int argc, char **argv) {
@@ -155,7 +189,11 @@ int main(int argc, char **argv) {
     .logged_in = &logged_in,
     .logged_out = &logged_out,
     .notify_main_thread = &notify_main_thread,
-    .metadata_updated = &metadata_updated
+    .metadata_updated = &metadata_updated,
+    .start_playback = &start_playback,
+    .stop_playback = &stop_playback,
+    .get_audio_buffer_stats = &get_audio_buffer_stats,
+    .music_delivery = &music_delivery
   };
 
   sp_session_config session_config = {
