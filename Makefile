@@ -23,7 +23,7 @@ LDFLAGS=`PKG_CONFIG_PATH=/usr/local/lib/ pkg-config --libs libevent libevent_pth
 else
 # chumby
 CFLAGS=-I/home/pierre/work/perso/noisebox/chumby-buildroot/usr/local/include
-LDFLAGS=-L/home/pierre/work/perso/noisebox/chumby-buildroot/usr/local/lib -lspotify -levent -levent_pthreads
+LDFLAGS=-L/home/pierre/work/perso/noisebox/chumby-buildroot/usr/local/lib -lspotify -levent -levent_pthreads -lasound
 endif
 endif
 endif
