@@ -9,13 +9,13 @@ SRC+=src/osx-audio.c
 CFLAGS=`pkg-config --cflags libevent`
 LDFLAGS=-framework libspotify -levent -levent_pthreads -framework AudioToolbox
 else
-ifeq ($(shell uname -p),x86_64)
 SRC+=src/alsa-audio.c
+ifeq ($(shell uname -p),x86_64)
 CFLAGS=`pkg-config --cflags libevent libevent_pthreads libspotify alsa`
 LDFLAGS=`pkg-config --libs libevent libevent_pthreads libspotify alsa`
 else
 CFLAGS=-I/home/pierre/work/perso/noisebox/chumby-buildroot/usr/local/include
-LDFLAGS=-L/home/pierre/work/perso/noisebox/chumby-buildroot/usr/local/lib -lspotify -levent -levent_pthreads
+LDFLAGS=-L/home/pierre/work/perso/noisebox/chumby-buildroot/usr/local/lib -lspotify -levent -levent_pthreads -lasound
 endif
 endif
 
