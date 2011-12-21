@@ -153,14 +153,14 @@ void stop_playback(sp_session *session) {
 
 void get_audio_buffer_stats(sp_session *session, sp_audio_buffer_stats *stats)
 {
-	
+	fprintf(stderr, "get_audio_buffer_stats !\n");
 }
 
 
 static int music_delivery(sp_session *sess, const sp_audioformat *format,
                           const void *frames, int num_frames)
 {
-	fprintf(stderr, "music delivery !\n");
+	fprintf(stderr, "music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
 }
 
 
