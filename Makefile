@@ -10,6 +10,7 @@ CFLAGS=`pkg-config --cflags libevent`
 LDFLAGS=-framework libspotify -levent -levent_pthreads -framework AudioToolbox
 else
 ifeq ($(shell uname -p),x86_64)
+SRC+=src/alsa-audio.c
 CFLAGS=`pkg-config --cflags libevent libevent_pthreads libspotify alsa`
 LDFLAGS=`pkg-config --libs libevent libevent_pthreads libspotify alsa`
 else
