@@ -1,0 +1,6 @@
+divers concernant la compilation sur la chumby hacker board
+
+Je bosse sur scratchbox2 installé en apt-get sur mon ubuntu_11.04. Un peu de doc ici http://wiki.chumby.com/index.php/Scratchbox mais ce n'est pas comme ça que je l'ai configurée.
+
+* headers pour alsa-lib : d/l sur http://files.chumby.com/source/falconwing/build2370/alsa-lib_1.0.10.orig.tar.gz
+* lib pour alsa-lib : elle était sur la board mais pas dans l'archive falconwing -> été la récup' sur la board
