@@ -147,6 +147,15 @@ static void metadata_updated(sp_session *session) {
 }
 
 
+
+void end_of_track(sp_session *session) {
+  fprintf(stderr, "end_of_track callback\n");
+  sp_session_player_unload  (session);
+//  sp_track_release(t);
+  sp_session_logout(session);
+}
+
+
 void start_playback(sp_session *session) {
 	fprintf(stderr, "start playback callback\n");
 
@@ -233,6 +242,7 @@ int main(int argc, char **argv) {
     .logged_out = &logged_out,
     .notify_main_thread = &notify_main_thread,
     .metadata_updated = &metadata_updated,
+    .end_of_track = end_of_track,
     .start_playback = &start_playback,
     .stop_playback = &stop_playback,
     .get_audio_buffer_stats = &get_audio_buffer_stats,
