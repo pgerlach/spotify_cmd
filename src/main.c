@@ -10,6 +10,13 @@
 #include <stdlib.h>
 #include <signal.h>
 
+#include "audio.h"
+
+
+/// The output queue for audo data
+static audio_fifo_t g_audiofifo;
+
+
 // Application key
 extern const unsigned char g_appkey[]; 
 extern const size_t g_appkey_size; 
@@ -162,6 +169,41 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
                           const void *frames, int num_frames)
 {
 	fprintf(stderr, "music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
+
+  audio_fifo_t *af = &g_audiofifo;
+  audio_fifo_data_t *afd;
+  size_t s;
+
+  if (num_frames == 0)
+    return 0; // Audio discontinuity, do nothing
+
+  pthread_mutex_lock(&af->mutex);
+
+  /* Buffer one second of audio */
+  if (af->qlen > format->sample_rate) {
+    pthread_mutex_unlock(&af->mutex);
+
+    return 0;
+  }
+
+  s = num_frames * sizeof(int16_t) * format->channels;
+
+  afd = malloc(sizeof(audio_fifo_data_t) + s);
+  memcpy(afd->samples, frames, s);
+
+  afd->nsamples = num_frames;
+
+  afd->rate = format->sample_rate;
+  afd->channels = format->channels;
+
+  TAILQ_INSERT_TAIL(&af->q, afd, link);
+  af->qlen += num_frames;
+
+  pthread_cond_signal(&af->cond);
+  pthread_mutex_unlock(&af->mutex);
+
+  return num_frames;
+
 }
 
 
@@ -209,6 +251,8 @@ int main(int argc, char **argv) {
     .user_agent = "spotify_cmd",
     .userdata = state,
   };
+
+  audio_init(&g_audiofifo);
 
   sp_session *session;
   sp_error session_create_error = sp_session_create(&session_config,
