@@ -8,6 +8,7 @@
 #include <event2/util.h>
 
 #include <stdlib.h>
+#include <signal.h>
 
 // Application key
 extern const unsigned char g_appkey[]; 
