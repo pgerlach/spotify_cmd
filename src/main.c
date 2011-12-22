@@ -43,6 +43,8 @@ struct state {
   struct timeval next_timeout;
 
   struct evhttp *http;
+
+  const char* uriToPlay;
 };
 
 
@@ -87,7 +89,8 @@ static void logged_in(sp_session *session, sp_error error) {
 
 
   // try to load a track (spotify:track:65EaJb3guHXc5OELuFQjeH)
-  sp_link* l = sp_link_create_from_string("spotify:track:65EaJb3guHXc5OELuFQjeH"); 
+  sp_link* l = sp_link_create_from_string(state->uriToPlay);
+  // TODO add error check here
   t = sp_link_as_track(l);
   sp_track_add_ref(t);
 
@@ -219,6 +222,11 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
 
 int main(int argc, char **argv) {
 
+  if (argc != 2) {
+    fprintf(stderr, "need one argument : uri of a track\n");
+    return 1;
+  }
+
 	printf("username: %s\n", username);
   struct account account = {
     .username = username,
@@ -227,6 +235,9 @@ int main(int argc, char **argv) {
 
   // Initialize program state
   struct state *state = malloc(sizeof(struct state));
+
+  state->uriToPlay = argv[1];
+  fprintf(stderr, "will play %s\n", state->uriToPlay);
 
   // Initialize libev w/ pthreads
   evthread_use_pthreads();
