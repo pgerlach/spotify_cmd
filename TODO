@@ -1,0 +1,7 @@
+- find a way for user to provide its spotify id/password
+- configure script (even ugly)
+- handle albums
+- handle playlists
+- next/prev/pause
+- streaming improvements
+- provide feedback (status, artist, trackname, track len, ...) , one way or another, so that we can show it on the box (leds, lcd screen, ...)
