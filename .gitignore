@@ -2,3 +2,4 @@ src/*.o
 bin/*
 .cache
 .settings
+config.mk
