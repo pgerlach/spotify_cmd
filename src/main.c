@@ -40,7 +40,8 @@ struct state {
 
   struct evhttp *http;
 
-  const char* uriToPlay;
+  const char** urisToPlay;
+  int nbUrisToPlay;
 } *state;
 
 
@@ -79,13 +80,8 @@ static void logged_in(sp_session *session, sp_error error) {
   state->session = session;
   evsignal_add(state->sigint, NULL);
 
-  // sp_playlistcontainer *pc = sp_session_playlistcontainer(session);
-  // sp_playlistcontainer_add_callbacks(pc, &playlistcontainer_callbacks,
-  //                                    session);
-
-
   // try to load a track (spotify:track:65EaJb3guHXc5OELuFQjeH)
-  sp_link* l = sp_link_create_from_string(state->uriToPlay);
+  sp_link* l = sp_link_create_from_string(state->urisToPlay[0]);
   // TODO add error check here
   t = sp_link_as_track(l);
   sp_track_add_ref(t);
@@ -219,19 +215,20 @@ static void usage() {
 }
 
 
-static int parse_cmdline(int argc, char **argv) {
-  if (argc != 4) {
+static int parse_cmdline(int argc, const char **argv) {
+  if (argc < 4) {
     usage();
     return 1;
   }
   account.username = argv[1];
   account.password = argv[2];
-  state->uriToPlay = argv[3];
+  state->nbUrisToPlay = argc - 3;
+  state->urisToPlay = argv + 3;
   return 0;
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc, const char **argv) {
 
   // Initialize program state
   state = malloc(sizeof(struct state));
@@ -240,7 +237,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  fprintf(stderr, "will play %s\n", state->uriToPlay);
+  fprintf(stderr, "will play %s\n", state->urisToPlay[0]);
 
   // Initialize libev w/ pthreads
   evthread_use_pthreads();
