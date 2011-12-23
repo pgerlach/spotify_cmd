@@ -5,3 +5,4 @@
 - next/prev/pause
 - streaming improvements
 - provide feedback (status, artist, trackname, track len, ...) , one way or another, so that we can show it on the box (leds, lcd screen, ...)
+- have the client constantly loaded and be able to fully control it (open tracks, stop, ...) so that we only login once
