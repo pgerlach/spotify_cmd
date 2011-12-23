@@ -42,10 +42,11 @@ struct state {
 
   const char** urisToPlay;
   int nbUrisToPlay;
+
+  sp_track *currentTrack;
+  int currentTrackIdx;
 } *state;
 
-
-sp_track* t = NULL;
 
 
 // Catches SIGINT and exits gracefully
@@ -68,6 +69,34 @@ static void logged_out(sp_session *session) {
 }
 
 
+static void playNextTrack() {
+  // here we assume that everything about the current track (if any) that
+  // had to be unloaded has been unloaded.
+
+  state->currentTrackIdx++;
+
+  if (state->currentTrackIdx == state->nbUrisToPlay) {
+    sp_session_logout(state->session);
+    return ;
+  }
+
+  sp_link* l = sp_link_create_from_string(state->urisToPlay[state->currentTrackIdx]);
+  // TODO add error check here
+  state->currentTrack = sp_link_as_track(l);
+  // TODO idem
+  sp_track_add_ref(state->currentTrack);
+
+  if (sp_track_is_loaded(state->currentTrack))
+  {
+     printf("track is loaded !\n");
+  }
+  else
+  {
+     printf("track is not loaded :(\n");
+  }
+}
+
+
 static void logged_in(sp_session *session, sp_error error) {
   if (error != SP_ERROR_OK) {
     fprintf(stderr, "%s\n", sp_error_message(error));
@@ -80,20 +109,7 @@ static void logged_in(sp_session *session, sp_error error) {
   state->session = session;
   evsignal_add(state->sigint, NULL);
 
-  // try to load a track (spotify:track:65EaJb3guHXc5OELuFQjeH)
-  sp_link* l = sp_link_create_from_string(state->urisToPlay[0]);
-  // TODO add error check here
-  t = sp_link_as_track(l);
-  sp_track_add_ref(t);
-
-  if (sp_track_is_loaded(t))
-  {
-  	 printf("track is loaded !\n");
-  }
-  else
-  {
-  	 printf("track is not loaded :(\n");
-  }
+  playNextTrack();
 }
 
 
@@ -122,15 +138,15 @@ static void notify_main_thread(sp_session *session) {
 
 static void metadata_updated(sp_session *session) {
 	fprintf(stderr, "metadata updated.\n");
-	if ((NULL != t) && sp_track_is_loaded (t))
+	if ((NULL != state->currentTrack) && sp_track_is_loaded (state->currentTrack))
 	{
-		fprintf(stderr, "track loaded. name: %s\n", sp_track_name(t));
+		fprintf(stderr, "track loaded. name: %s\n", sp_track_name(state->currentTrack));
 
-		sp_error e = sp_session_player_load(session, t);
+		sp_error e = sp_session_player_load(session, state->currentTrack);
 		if (e != SP_ERROR_OK) {
 			fprintf(stderr, "error !\n");
-			sp_track_release(t);
-			t = NULL;
+			sp_track_release(state->currentTrack);
+			state->currentTrack = NULL;
 		}
 		else {
 			sp_session_player_play(session, 1);
@@ -142,12 +158,11 @@ static void metadata_updated(sp_session *session) {
 }
 
 
-
 void end_of_track(sp_session *session) {
   fprintf(stderr, "end_of_track callback\n");
   sp_session_player_unload  (session);
 //  sp_track_release(t);
-  sp_session_logout(session);
+  playNextTrack();
 }
 
 
@@ -246,6 +261,9 @@ int main(int argc, const char **argv) {
   state->async = event_new(state->event_base, -1, 0, &process_events, state);
   state->timer = evtimer_new(state->event_base, &process_events, state);
   state->sigint = evsignal_new(state->event_base, SIGINT, &sigint_handler, state);
+
+  state->currentTrack = NULL;
+  state->currentTrackIdx = -1;
 
   // Initialize libspotify
   sp_session_callbacks session_callbacks = {
