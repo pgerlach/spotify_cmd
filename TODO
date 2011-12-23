@@ -1,4 +1,5 @@
 - find a way for user to provide its spotify id/password
+- accept multiple tracks on command line
 - configure script (even ugly)
 - handle albums
 - handle playlists
