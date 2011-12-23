@@ -1,4 +1,4 @@
-SRC = src/main.c src/credentials.c src/spotify_appkey.c src/audio.c
+SRC = src/main.c src/spotify_appkey.c src/audio.c
 
 CC=gcc
 CFLAGS=-Wall -O2

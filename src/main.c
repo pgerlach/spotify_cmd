@@ -21,17 +21,13 @@ static audio_fifo_t g_audiofifo;
 extern const unsigned char g_appkey[]; 
 extern const size_t g_appkey_size; 
 
-// Account information (in credentials.c)
-extern const char username[];
-extern const char password[];
-
 static int exit_status = EXIT_FAILURE;
 
 // Spotify account information
 struct account {
   const char *username;
   const char *password;
-};
+} account;
 
 struct state {
   sp_session *session;
@@ -45,7 +41,7 @@ struct state {
   struct evhttp *http;
 
   const char* uriToPlay;
-};
+} *state;
 
 
 sp_track* t = NULL;
@@ -218,25 +214,32 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
 
 }
 
+static void usage() {
+  fprintf(stderr, "Usage: spotify_cmd <spotify_username> <spotify_password> <spotify_uri>\n");
+}
+
+
+static int parse_cmdline(int argc, char **argv) {
+  if (argc != 4) {
+    usage();
+    return 1;
+  }
+  account.username = argv[1];
+  account.password = argv[2];
+  state->uriToPlay = argv[3];
+  return 0;
+}
 
 
 int main(int argc, char **argv) {
 
-  if (argc != 2) {
-    fprintf(stderr, "need one argument : uri of a track\n");
+  // Initialize program state
+  state = malloc(sizeof(struct state));
+
+  if (parse_cmdline(argc, argv)) {
     return 1;
   }
 
-	printf("username: %s\n", username);
-  struct account account = {
-    .username = username,
-    .password = password
-  };
-
-  // Initialize program state
-  struct state *state = malloc(sizeof(struct state));
-
-  state->uriToPlay = argv[1];
   fprintf(stderr, "will play %s\n", state->uriToPlay);
 
   // Initialize libev w/ pthreads
