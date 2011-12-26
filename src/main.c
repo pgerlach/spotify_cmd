@@ -43,17 +43,24 @@ struct state {
 
   struct evhttp *http;
 
-  const char** urisToPlay;
-  int nbUrisToPlay;
-
   sp_track *currentTrack;
   unsigned int currentTrackIdx;
   struct event *endOfTrack;
+
+  const char **urisToPlay;
+  int nbUrisToPlay;
+
+  sp_track **tracklist;
+  unsigned int tracklistLen;
+  int tracklistSomethingLoading;
+  int tracklistLoadingIdx;
+  sp_albumbrowse *tracklistCurrentlyLoadingAlbumBrowse;
+
 } *state;
 
 
-static void playTrack();
-
+static void playTrack(struct state *state);
+static void tracklistFill(struct state *state);
 
 // Catches SIGINT and exits gracefully
 static void sigint_handler(evutil_socket_t socket,
@@ -99,10 +106,10 @@ static void stdin_data(evutil_socket_t socket,
     if (!strcmp(buf, "next\n")) {
       fprintf(stderr, "going to next track\n");
       state->currentTrackIdx++;
-      if (state->currentTrackIdx == state->nbUrisToPlay) {
+      if (state->currentTrackIdx == state->tracklistLen) {
         state->currentTrackIdx = 0; // loop
       }
-      playTrack();
+      playTrack(state);
     }
     else if (!strcmp(buf, "prev\n")) {
       fprintf(stderr, "going to previous track\n");
@@ -110,9 +117,9 @@ static void stdin_data(evutil_socket_t socket,
         state->currentTrackIdx--;
       }
       else {
-        state->currentTrackIdx = state->nbUrisToPlay-1;
+        state->currentTrackIdx = state->tracklistLen-1;
       }
-      playTrack();
+      playTrack(state);
     }
     else {
       fprintf(stderr, "unknown command \"%s\"", buf);
@@ -121,12 +128,32 @@ static void stdin_data(evutil_socket_t socket,
   
 }
 
+
+/**
+  * Really starts the playing of the current track (assumes it is fully loaded)
+  */
+static void launchPlayCurrentTrack(struct state* state) {
+  sp_error e = sp_session_player_load(state->session, state->currentTrack);
+  if (e != SP_ERROR_OK) {
+    fprintf(stderr, "error !\n");
+    sp_track_release(state->currentTrack);
+    state->currentTrack = NULL;
+  }
+  else {
+    sp_session_player_play(state->session, 1);
+  }
+}
+
+
+
 /*
  * Plays the track at index currentTrackIdx, stopping the current one if needed.
  */
-static void playTrack() {
+static void playTrack(struct state *state) {
   // here we assume that everything about the current track (if any) that
   // had to be unloaded has been unloaded.
+
+  fprintf(stderr, "playtrack. state->currentTrackIdx=%d\n", state->currentTrackIdx);
 
   if (NULL != state->currentTrack) {
     sp_session_player_unload(state->session);
@@ -134,29 +161,40 @@ static void playTrack() {
     state->currentTrack = NULL;
   }
 
-  if (state->currentTrackIdx >= state->nbUrisToPlay) {
-    fprintf(stderr, "No more uris to play\n");
+  if (state->currentTrackIdx >= state->tracklistLen) {
+    fprintf(stderr, "No more tracks to play\n");
     sp_session_logout(state->session);
     return ;
   }
 
-  sp_link* l = sp_link_create_from_string(state->urisToPlay[state->currentTrackIdx]);
-  // TODO add error check here
-  state->currentTrack = sp_link_as_track(l);
+  state->currentTrack = state->tracklist[state->currentTrackIdx];
   sp_track_add_ref(state->currentTrack);
-  sp_link_release(l); l = NULL;
 
   if (sp_track_is_loaded(state->currentTrack))
   {
      fprintf(stderr, "track is loaded !\n");
+     launchPlayCurrentTrack(state);
   }
   else
   {
      fprintf(stderr, "track is not loaded :(\n");
   }
+}
 
-  fprintf(stderr, "OUT playNextTrack\n");
 
+/**
+ * Called when tracklist is full and we can begin playing music
+ */
+static void letsPlay(struct state *state) {
+  stdin_setup(state);
+
+  fprintf(stderr, "Will now begin playback. %d tracks in tracklist\n", state->tracklistLen);
+  for (int i=0; i<state->tracklistLen; ++i) {
+    sp_track *t = state->tracklist[i];
+    fprintf(stderr, " - \"%s\" (\"%s\" // \"%s\")\n", sp_track_name(t), sp_album_name(sp_track_album(t)), sp_artist_name(sp_album_artist(sp_track_album(t))));
+  }
+  state->currentTrackIdx = 0;
+  playTrack(state);
 }
 
 /**
@@ -167,7 +205,93 @@ static void process_end_of_track(evutil_socket_t socket,
                                  void *userdata) {
   struct state *state = userdata;
   state->currentTrackIdx++;
-  playTrack();
+  playTrack(state);
+}
+
+
+static void tracklistAddTrack(struct state* state, sp_track* track) {
+  fprintf(stderr, "Adding track \"%s\" to tracklist\n", sp_track_name(track));
+  sp_track_add_ref(track);
+  state->tracklistLen++;
+  state->tracklist = realloc(state->tracklist, state->tracklistLen * sizeof(sp_track*));
+  state->tracklist[state->tracklistLen-1] = track;
+}
+
+
+
+/**
+ * Callback called when album information has been loaded.
+ */
+void trackListAddAlbumAlbumBrowseCb(sp_albumbrowse *result, void *userdata) {
+  struct state *state = userdata;
+  if (result != state->tracklistCurrentlyLoadingAlbumBrowse) {
+    fprintf(stderr, "ERR: result != state->currentlyLoadingAlbumBrowse");
+    return ;
+  }
+  fprintf(stderr, "%d tracks in the album \"%s\"\n", sp_albumbrowse_num_tracks(result), sp_album_name(sp_albumbrowse_album(result)));
+  for (int i=0; i < sp_albumbrowse_num_tracks(result); ++i) {
+    tracklistAddTrack(state, sp_albumbrowse_track(result, i));
+  }
+  sp_albumbrowse_release(state->tracklistCurrentlyLoadingAlbumBrowse);
+  state->tracklistCurrentlyLoadingAlbumBrowse = NULL;
+
+  state->tracklistSomethingLoading = 0;
+  (state->tracklistLoadingIdx)++;
+  tracklistFill(state);
+}
+
+static void tracklistAddAlbum(struct state* state, sp_album* album) {
+  sp_albumbrowse *albumBrowse = sp_albumbrowse_create(state->session, album, &trackListAddAlbumAlbumBrowseCb, state);
+  state->tracklistCurrentlyLoadingAlbumBrowse = albumBrowse;
+  state->tracklistSomethingLoading = 1;
+}
+
+
+/**
+ * Loads a uri and add the associated tracks into the tracklist.
+ */
+static void tracklistAddUri(struct state* state, const char* uri) {
+  fprintf(stderr, "add uri \"%s\"\n", uri);
+
+  sp_link* l = sp_link_create_from_string(uri);
+  if (NULL == l) {
+    fprintf(stderr, "Could not parse uri \"%s\", skipping\n", uri);
+    return ;
+  }
+  switch (sp_link_type(l)) {
+    case SP_LINKTYPE_TRACK:
+      tracklistAddTrack(state, sp_link_as_track(l));
+      break;
+    case SP_LINKTYPE_ALBUM:
+      tracklistAddAlbum(state, sp_link_as_album(l));
+      break;
+    default:
+      fprintf(stderr, "Unhandled link type \"%s\", skipping\n", uri);
+      break;
+  }
+  sp_link_release(l);
+  l = NULL;
+}
+
+
+/*
+ * For each arg, if it is a track, add it to the tracklist, if it is an album or a playlist,
+ * add all its tracks to the tracklist.
+ * Before the first call, state->tracklistLoadingIdx should be 0.
+ */
+static void tracklistFill(struct state *state) {
+  fprintf(stderr, "trackListFill\n");
+  for ( ; state->tracklistLoadingIdx < state->nbUrisToPlay; state->tracklistLoadingIdx++) {
+    tracklistAddUri(state, state->urisToPlay[state->tracklistLoadingIdx]);
+    if (state->tracklistSomethingLoading)
+      // asynchronous load
+      break ;
+  }
+
+  if (!state->tracklistSomethingLoading) {
+    fprintf(stderr, "nothing more loading, launching play\n");
+    letsPlay(state);
+  }
 }
 
 
@@ -183,8 +307,7 @@ static void logged_in(sp_session *session, sp_error error) {
   state->session = session;
   evsignal_add(state->sigint, NULL);
 
-  stdin_setup(state);
-  playTrack();
+  tracklistFill(state);
 }
 
 
@@ -216,16 +339,7 @@ static void metadata_updated(sp_session *session) {
 	if ((NULL != state->currentTrack) && sp_track_is_loaded (state->currentTrack))
 	{
 		fprintf(stderr, "track loaded. name: %s\n", sp_track_name(state->currentTrack));
-
-		sp_error e = sp_session_player_load(session, state->currentTrack);
-		if (e != SP_ERROR_OK) {
-			fprintf(stderr, "error !\n");
-			sp_track_release(state->currentTrack);
-			state->currentTrack = NULL;
-		}
-		else {
-			sp_session_player_play(session, 1);
-		}
+    launchPlayCurrentTrack(state);
 	}
 	else {
 		fprintf(stderr, "track not loaded yet\n");
@@ -339,6 +453,11 @@ int main(int argc, const char **argv) {
   state->endOfTrack = event_new(state->event_base, -1, 0, &process_end_of_track, state);
   state->currentTrack = NULL;
   state->currentTrackIdx = 0;
+
+  state->tracklist = NULL;
+  state->tracklistSomethingLoading = 0;
+  state->tracklistLoadingIdx = 0;
+  state->tracklistCurrentlyLoadingAlbumBrowse = NULL;
 
   // Initialize libspotify
   sp_session_callbacks session_callbacks = {
