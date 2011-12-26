@@ -43,11 +43,16 @@ struct state {
 
   struct evhttp *http;
 
-  const char* uriToPlay;
+  const char** urisToPlay;
+  int nbUrisToPlay;
+
+  sp_track *currentTrack;
+  unsigned int currentTrackIdx;
+  struct event *endOfTrack;
 } *state;
 
 
-sp_track* t = NULL;
+static void playTrack();
 
 
 // Catches SIGINT and exits gracefully
@@ -84,6 +89,7 @@ static void stdin_setup(struct state *state) {
 static void stdin_data(evutil_socket_t socket,
                        short what,
                        void *userdata) {
+  struct state *state = userdata;
   char c;
   static char buf[256];
   while (EOF != (c = fgetc(stdin))) {
@@ -91,6 +97,57 @@ static void stdin_data(evutil_socket_t socket,
     fgets(buf, 256, stdin);
     fprintf(stderr, "line on stdin: %s\n", buf);
   }
+  state->currentTrackIdx++;
+  playTrack();
+}
+
+/*
+ * Plays the track at index currentTrackIdx, stopping the current one if needed.
+ */
+static void playTrack() {
+  // here we assume that everything about the current track (if any) that
+  // had to be unloaded has been unloaded.
+
+  if (NULL != state->currentTrack) {
+    sp_session_player_unload(state->session);
+    sp_track_release(state->currentTrack);
+    state->currentTrack = NULL;
+  }
+
+  if (state->currentTrackIdx >= state->nbUrisToPlay) {
+    fprintf(stderr, "No more uris to play\n");
+    sp_session_logout(state->session);
+    return ;
+  }
+
+  sp_link* l = sp_link_create_from_string(state->urisToPlay[state->currentTrackIdx]);
+  // TODO add error check here
+  state->currentTrack = sp_link_as_track(l);
+  sp_track_add_ref(state->currentTrack);
+  sp_link_release(l); l = NULL;
+
+  if (sp_track_is_loaded(state->currentTrack))
+  {
+     fprintf(stderr, "track is loaded !\n");
+  }
+  else
+  {
+     fprintf(stderr, "track is not loaded :(\n");
+  }
+
+  fprintf(stderr, "OUT playNextTrack\n");
+
+}
+
+/**
+ * Called in main thread after end_of_track has been called in the music delivery internal thread.
+ */
+static void process_end_of_track(evutil_socket_t socket,
+                                 short what,
+                                 void *userdata) {
+  struct state *state = userdata;
+  state->currentTrackIdx++;
+  playTrack();
 }
 
 
@@ -107,26 +164,7 @@ static void logged_in(sp_session *session, sp_error error) {
   evsignal_add(state->sigint, NULL);
 
   stdin_setup(state);
-
-  // sp_playlistcontainer *pc = sp_session_playlistcontainer(session);
-  // sp_playlistcontainer_add_callbacks(pc, &playlistcontainer_callbacks,
-  //                                    session);
-
-
-  // try to load a track (spotify:track:65EaJb3guHXc5OELuFQjeH)
-  sp_link* l = sp_link_create_from_string(state->uriToPlay);
-  // TODO add error check here
-  t = sp_link_as_track(l);
-  sp_track_add_ref(t);
-
-  if (sp_track_is_loaded(t))
-  {
-  	 printf("track is loaded !\n");
-  }
-  else
-  {
-  	 printf("track is not loaded :(\n");
-  }
+  playTrack();
 }
 
 
@@ -155,15 +193,15 @@ static void notify_main_thread(sp_session *session) {
 
 static void metadata_updated(sp_session *session) {
 	fprintf(stderr, "metadata updated.\n");
-	if ((NULL != t) && sp_track_is_loaded (t))
+	if ((NULL != state->currentTrack) && sp_track_is_loaded (state->currentTrack))
 	{
-		fprintf(stderr, "track loaded. name: %s\n", sp_track_name(t));
+		fprintf(stderr, "track loaded. name: %s\n", sp_track_name(state->currentTrack));
 
-		sp_error e = sp_session_player_load(session, t);
+		sp_error e = sp_session_player_load(session, state->currentTrack);
 		if (e != SP_ERROR_OK) {
 			fprintf(stderr, "error !\n");
-			sp_track_release(t);
-			t = NULL;
+			sp_track_release(state->currentTrack);
+			state->currentTrack = NULL;
 		}
 		else {
 			sp_session_player_play(session, 1);
@@ -175,12 +213,10 @@ static void metadata_updated(sp_session *session) {
 }
 
 
-
 void end_of_track(sp_session *session) {
-  fprintf(stderr, "end_of_track callback\n");
-  sp_session_player_unload  (session);
-//  sp_track_release(t);
-  sp_session_logout(session);
+  fprintf(stderr, "end_of_track\n");
+  struct state *state = sp_session_userdata(session);
+  event_active(state->endOfTrack, 0, 1);
 }
 
 
@@ -198,28 +234,28 @@ void stop_playback(sp_session *session) {
 
 void get_audio_buffer_stats(sp_session *session, sp_audio_buffer_stats *stats)
 {
-	fprintf(stderr, "get_audio_buffer_stats !\n");
+//	fprintf(stderr, "get_audio_buffer_stats !\n");
 }
 
 
 static int music_delivery(sp_session *sess, const sp_audioformat *format,
                           const void *frames, int num_frames)
 {
-	fprintf(stderr, "music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
+//	fprintf(stderr, "IN music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
 
   audio_fifo_t *af = &g_audiofifo;
   audio_fifo_data_t *afd;
   size_t s;
 
-  if (num_frames == 0)
+  if (num_frames == 0) {
     return 0; // Audio discontinuity, do nothing
+  }
 
   pthread_mutex_lock(&af->mutex);
 
   /* Buffer one second of audio */
   if (af->qlen > format->sample_rate) {
     pthread_mutex_unlock(&af->mutex);
-
     return 0;
   }
 
@@ -240,7 +276,6 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
   pthread_mutex_unlock(&af->mutex);
 
   return num_frames;
-
 }
 
 static void usage() {
@@ -248,19 +283,20 @@ static void usage() {
 }
 
 
-static int parse_cmdline(int argc, char **argv) {
-  if (argc != 4) {
+static int parse_cmdline(int argc, const char **argv) {
+  if (argc < 4) {
     usage();
     return 1;
   }
   account.username = argv[1];
   account.password = argv[2];
-  state->uriToPlay = argv[3];
+  state->nbUrisToPlay = argc - 3;
+  state->urisToPlay = argv + 3;
   return 0;
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc, const char **argv) {
 
   // Initialize program state
   state = malloc(sizeof(struct state));
@@ -269,7 +305,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  fprintf(stderr, "will play %s\n", state->uriToPlay);
+  fprintf(stderr, "will play %s\n", state->urisToPlay[0]);
 
   // Initialize libev w/ pthreads
   evthread_use_pthreads();
@@ -278,7 +314,11 @@ int main(int argc, char **argv) {
   state->async = event_new(state->event_base, -1, 0, &process_events, state);
   state->timer = evtimer_new(state->event_base, &process_events, state);
   state->sigint = evsignal_new(state->event_base, SIGINT, &sigint_handler, state);
-  state->ev_stdin = event_new(state->event_base, fileno(stdin), EV_READ|EV_PERSIST, &stdin_data, NULL);
+  state->ev_stdin = event_new(state->event_base, fileno(stdin), EV_READ|EV_PERSIST, &stdin_data, state);
+
+  state->endOfTrack = event_new(state->event_base, -1, 0, &process_end_of_track, state);
+  state->currentTrack = NULL;
+  state->currentTrackIdx = 0;
 
   // Initialize libspotify
   sp_session_callbacks session_callbacks = {
@@ -321,6 +361,7 @@ int main(int argc, char **argv) {
 
   event_base_dispatch(state->event_base);
 
+  event_free(state->endOfTrack);
   event_free(state->async);
   event_free(state->timer);
   if (state->http != NULL) evhttp_free(state->http);
