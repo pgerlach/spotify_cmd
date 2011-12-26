@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <string.h>
+#include <fcntl.h>
 
 #include "audio.h"
 
@@ -38,6 +39,7 @@ struct state {
   struct event *timer;
   struct event *sigint;
   struct timeval next_timeout;
+  struct event *ev_stdin;
 
   struct evhttp *http;
 
@@ -68,6 +70,30 @@ static void logged_out(sp_session *session) {
 }
 
 
+static void stdin_setup(struct state *state) {
+  int flags = fcntl(fileno(stdin), F_GETFL, 0);
+  fprintf(stderr, "flags: %d. stdin non blocking ? %d\n", flags, !!(flags & O_NONBLOCK));
+  flags |= O_NONBLOCK;
+  int err = fcntl(fileno(stdin), F_SETFL, flags);
+  fprintf(stderr, "res: %d\n", err);
+
+  event_add(state->ev_stdin, NULL);
+}
+
+
+static void stdin_data(evutil_socket_t socket,
+                       short what,
+                       void *userdata) {
+  char c;
+  static char buf[256];
+  while (EOF != (c = fgetc(stdin))) {
+    ungetc(c, stdin);
+    fgets(buf, 256, stdin);
+    fprintf(stderr, "line on stdin: %s\n", buf);
+  }
+}
+
+
 static void logged_in(sp_session *session, sp_error error) {
   if (error != SP_ERROR_OK) {
     fprintf(stderr, "%s\n", sp_error_message(error));
@@ -79,6 +105,8 @@ static void logged_in(sp_session *session, sp_error error) {
   struct state *state = sp_session_userdata(session);
   state->session = session;
   evsignal_add(state->sigint, NULL);
+
+  stdin_setup(state);
 
   // sp_playlistcontainer *pc = sp_session_playlistcontainer(session);
   // sp_playlistcontainer_add_callbacks(pc, &playlistcontainer_callbacks,
@@ -250,6 +278,7 @@ int main(int argc, char **argv) {
   state->async = event_new(state->event_base, -1, 0, &process_events, state);
   state->timer = evtimer_new(state->event_base, &process_events, state);
   state->sigint = evsignal_new(state->event_base, SIGINT, &sigint_handler, state);
+  state->ev_stdin = event_new(state->event_base, fileno(stdin), EV_READ|EV_PERSIST, &stdin_data, NULL);
 
   // Initialize libspotify
   sp_session_callbacks session_callbacks = {
