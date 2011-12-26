@@ -1,0 +1,13 @@
+Main stuff to look for when working with libspotify :
+ - it's not because we have created a track/album/playlist/... that it is loaded
+ - it's not because we have a sucessfully loaded track that we can play it
+
+ For this simple player, I should event not have though about permitting multiple
+ uris as arguments. The code works as follow :
+  - put all uris in state->urisToPlay
+  - for each uri, try to load all the tracks of its content, and add them to
+  	tracklist
+  - when effectivly adding a track to tracklist, checking that it is available,
+    otherwise forget about it
+  - when tracklist has been populated, forget everything about uris, playlist,
+  albums, and only work with the tracks loaded in tracklist.
