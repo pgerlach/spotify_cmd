@@ -124,6 +124,8 @@ static void stdin_data(evutil_socket_t socket,
         state->currentTrackIdx = state->tracklistLen-1;
       }
       playTrack(state);
+    } else if (!strcmp(buf, "stop\n")) {
+      sp_session_logout(state->session);
     }
     else {
       fprintf(stderr, "unknown command \"%s\"", buf);
