@@ -45,8 +45,8 @@ struct state {
   int nbUrisToPlay;
 
   sp_track *currentTrack;
-  int currentTrackIdx;
-  struct event *goToNextTrack;
+  unsigned int currentTrackIdx;
+  struct event *endOfTrack;
 } *state;
 
 
@@ -71,11 +71,12 @@ static void logged_out(sp_session *session) {
 }
 
 
+/*
+ * Plays the track at index currentTrackIdx, stopping the current one if needed.
+ */
 static void playTrack() {
   // here we assume that everything about the current track (if any) that
   // had to be unloaded has been unloaded.
-
-  fprintf(stderr, "IN playNextTrack\n");
 
   if (NULL != state->currentTrack) {
     sp_session_player_unload(state->session);
@@ -83,9 +84,7 @@ static void playTrack() {
     state->currentTrack = NULL;
   }
 
-  state->currentTrackIdx++;
-
-  if (state->currentTrackIdx == state->nbUrisToPlay) {
+  if (state->currentTrackIdx >= state->nbUrisToPlay) {
     fprintf(stderr, "No more uris to play\n");
     sp_session_logout(state->session);
     return ;
@@ -94,16 +93,16 @@ static void playTrack() {
   sp_link* l = sp_link_create_from_string(state->urisToPlay[state->currentTrackIdx]);
   // TODO add error check here
   state->currentTrack = sp_link_as_track(l);
-  // TODO idem
   sp_track_add_ref(state->currentTrack);
+  sp_link_release(l); l = NULL;
 
   if (sp_track_is_loaded(state->currentTrack))
   {
-     printf("track is loaded !\n");
+     fprintf(stderr, "track is loaded !\n");
   }
   else
   {
-     printf("track is not loaded :(\n");
+     fprintf(stderr, "track is not loaded :(\n");
   }
 
   fprintf(stderr, "OUT playNextTrack\n");
@@ -116,6 +115,8 @@ static void playTrack() {
 static void process_end_of_track(evutil_socket_t socket,
                                  short what,
                                  void *userdata) {
+  struct state *state = userdata;
+  state->currentTrackIdx++;
   playTrack();
 }
 
@@ -184,7 +185,7 @@ static void metadata_updated(sp_session *session) {
 void end_of_track(sp_session *session) {
   fprintf(stderr, "end_of_track\n");
   struct state *state = sp_session_userdata(session);
-  event_active(state->goToNextTrack, 0, 1);
+  event_active(state->endOfTrack, 0, 1);
 }
 
 
@@ -202,21 +203,20 @@ void stop_playback(sp_session *session) {
 
 void get_audio_buffer_stats(sp_session *session, sp_audio_buffer_stats *stats)
 {
-	fprintf(stderr, "get_audio_buffer_stats !\n");
+//	fprintf(stderr, "get_audio_buffer_stats !\n");
 }
 
 
 static int music_delivery(sp_session *sess, const sp_audioformat *format,
                           const void *frames, int num_frames)
 {
-	fprintf(stderr, "IN music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
+//	fprintf(stderr, "IN music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
 
   audio_fifo_t *af = &g_audiofifo;
   audio_fifo_data_t *afd;
   size_t s;
 
   if (num_frames == 0) {
-    fprintf(stderr, "OUT 0 music delivery\n");
     return 0; // Audio discontinuity, do nothing
   }
 
@@ -225,8 +225,6 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
   /* Buffer one second of audio */
   if (af->qlen > format->sample_rate) {
     pthread_mutex_unlock(&af->mutex);
-
-    fprintf(stderr, "OUT 1 music delivery\n");
     return 0;
   }
 
@@ -245,8 +243,6 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
 
   pthread_cond_signal(&af->cond);
   pthread_mutex_unlock(&af->mutex);
-
-  fprintf(stderr, "OUT 2 music delivery\n");
 
   return num_frames;
 }
@@ -288,7 +284,7 @@ int main(int argc, const char **argv) {
   state->timer = evtimer_new(state->event_base, &process_events, state);
   state->sigint = evsignal_new(state->event_base, SIGINT, &sigint_handler, state);
 
-  state->goToNextTrack = event_new(state->event_base, -1, 0, &process_end_of_track, state);
+  state->endOfTrack = event_new(state->event_base, -1, 0, &process_end_of_track, state);
   state->currentTrack = NULL;
   state->currentTrackIdx = 0;
 
@@ -333,7 +329,7 @@ int main(int argc, const char **argv) {
 
   event_base_dispatch(state->event_base);
 
-  event_free(state->goToNextTrack);
+  event_free(state->endOfTrack);
   event_free(state->async);
   event_free(state->timer);
   if (state->http != NULL) evhttp_free(state->http);
