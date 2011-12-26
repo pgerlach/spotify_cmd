@@ -96,9 +96,29 @@ static void stdin_data(evutil_socket_t socket,
     ungetc(c, stdin);
     fgets(buf, 256, stdin);
     fprintf(stderr, "line on stdin: %s\n", buf);
+    if (!strcmp(buf, "next\n")) {
+      fprintf(stderr, "going to next track\n");
+      state->currentTrackIdx++;
+      if (state->currentTrackIdx == state->nbUrisToPlay) {
+        state->currentTrackIdx = 0; // loop
+      }
+      playTrack();
+    }
+    else if (!strcmp(buf, "prev\n")) {
+      fprintf(stderr, "going to previous track\n");
+      if (state->currentTrackIdx > 0) {
+        state->currentTrackIdx--;
+      }
+      else {
+        state->currentTrackIdx = state->nbUrisToPlay-1;
+      }
+      playTrack();
+    }
+    else {
+      fprintf(stderr, "unknown command \"%s\"", buf);
+    }
   }
-  state->currentTrackIdx++;
-  playTrack();
+  
 }
 
 /*
