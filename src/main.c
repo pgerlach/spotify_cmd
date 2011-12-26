@@ -46,6 +46,7 @@ struct state {
 
   sp_track *currentTrack;
   int currentTrackIdx;
+  struct event *goToNextTrack;
 } *state;
 
 
@@ -70,13 +71,22 @@ static void logged_out(sp_session *session) {
 }
 
 
-static void playNextTrack() {
+static void playTrack() {
   // here we assume that everything about the current track (if any) that
   // had to be unloaded has been unloaded.
+
+  fprintf(stderr, "IN playNextTrack\n");
+
+  if (NULL != state->currentTrack) {
+    sp_session_player_unload(state->session);
+    sp_track_release(state->currentTrack);
+    state->currentTrack = NULL;
+  }
 
   state->currentTrackIdx++;
 
   if (state->currentTrackIdx == state->nbUrisToPlay) {
+    fprintf(stderr, "No more uris to play\n");
     sp_session_logout(state->session);
     return ;
   }
@@ -95,6 +105,18 @@ static void playNextTrack() {
   {
      printf("track is not loaded :(\n");
   }
+
+  fprintf(stderr, "OUT playNextTrack\n");
+
+}
+
+/**
+ * Called in main thread after end_of_track has been called in the music delivery internal thread.
+ */
+static void process_end_of_track(evutil_socket_t socket,
+                                 short what,
+                                 void *userdata) {
+  playTrack();
 }
 
 
@@ -110,7 +132,7 @@ static void logged_in(sp_session *session, sp_error error) {
   state->session = session;
   evsignal_add(state->sigint, NULL);
 
-  playNextTrack();
+  playTrack();
 }
 
 
@@ -160,10 +182,9 @@ static void metadata_updated(sp_session *session) {
 
 
 void end_of_track(sp_session *session) {
-  fprintf(stderr, "end_of_track callback\n");
-  sp_session_player_unload  (session);
-//  sp_track_release(t);
-  playNextTrack();
+  fprintf(stderr, "end_of_track\n");
+  struct state *state = sp_session_userdata(session);
+  event_active(state->goToNextTrack, 0, 1);
 }
 
 
@@ -188,14 +209,16 @@ void get_audio_buffer_stats(sp_session *session, sp_audio_buffer_stats *stats)
 static int music_delivery(sp_session *sess, const sp_audioformat *format,
                           const void *frames, int num_frames)
 {
-	fprintf(stderr, "music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
+	fprintf(stderr, "IN music delivery ! sample rate: %d, channels %d, %d frames\n", format->sample_rate, format->channels, num_frames);
 
   audio_fifo_t *af = &g_audiofifo;
   audio_fifo_data_t *afd;
   size_t s;
 
-  if (num_frames == 0)
+  if (num_frames == 0) {
+    fprintf(stderr, "OUT 0 music delivery\n");
     return 0; // Audio discontinuity, do nothing
+  }
 
   pthread_mutex_lock(&af->mutex);
 
@@ -203,6 +226,7 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
   if (af->qlen > format->sample_rate) {
     pthread_mutex_unlock(&af->mutex);
 
+    fprintf(stderr, "OUT 1 music delivery\n");
     return 0;
   }
 
@@ -222,8 +246,9 @@ static int music_delivery(sp_session *sess, const sp_audioformat *format,
   pthread_cond_signal(&af->cond);
   pthread_mutex_unlock(&af->mutex);
 
-  return num_frames;
+  fprintf(stderr, "OUT 2 music delivery\n");
 
+  return num_frames;
 }
 
 static void usage() {
@@ -263,8 +288,9 @@ int main(int argc, const char **argv) {
   state->timer = evtimer_new(state->event_base, &process_events, state);
   state->sigint = evsignal_new(state->event_base, SIGINT, &sigint_handler, state);
 
+  state->goToNextTrack = event_new(state->event_base, -1, 0, &process_end_of_track, state);
   state->currentTrack = NULL;
-  state->currentTrackIdx = -1;
+  state->currentTrackIdx = 0;
 
   // Initialize libspotify
   sp_session_callbacks session_callbacks = {
@@ -307,6 +333,7 @@ int main(int argc, const char **argv) {
 
   event_base_dispatch(state->event_base);
 
+  event_free(state->goToNextTrack);
   event_free(state->async);
   event_free(state->timer);
   if (state->http != NULL) evhttp_free(state->http);
