@@ -1,7 +1,7 @@
 SRC = src/main.c src/spotify_appkey.c src/audio.c
 
 CC=gcc
-CFLAGS=-Wall -O2 -std=c99
+CFLAGS=-Wall -O2 -std=gnu99
 TARGET=bin/spotify_cmd
 
 include config.mk
