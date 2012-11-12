@@ -610,7 +610,7 @@ int main(int argc, const char **argv) {
 
   // Log in to Spotify
   printf("username: %s. password: %s\n", account.username, account.password);
-  sp_session_login(session, account.username, account.password, 0);
+  sp_session_login(session, account.username, account.password, 0, NULL);
 
   event_base_dispatch(state->event_base);
 
